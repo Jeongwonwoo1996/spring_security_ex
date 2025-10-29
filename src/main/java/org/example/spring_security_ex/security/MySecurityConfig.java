@@ -1,68 +1,87 @@
 package org.example.spring_security_ex.security;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.example.spring_security_ex.jwt.JwtFilter;
+import org.example.spring_security_ex.jwt.LoginFilter;
+import org.example.spring_security_ex.jwt.TokenProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+
+import java.util.Collections;
 
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class MySecurityConfig {
 
-//  private final PasswordEncoder passwordEncoder;
+  private final AuthenticationConfiguration authenticationConfiguration;
+  private final TokenProvider tokenProvider;
 
-//  @Bean
-//  public UserDetailsService userDetailsService(){
-//    UserDetails user = User.withDefaultPasswordEncoder()
-//        .username("user")
-//        .password("user1111")
-//        .roles("USER")
-//        .build();
-//    UserDetails admin = User.withDefaultPasswordEncoder()
-//        .username("admin")
-//        .password("admin1111")
-//        .roles("ADMIN", "USER")
-//        .build();
-//    return new InMemoryUserDetailsManager(user, admin);
-//  }
+  // AuthenticationManager Bean 으로 등록
+  @Bean
+  public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception{
+    return configuration.getAuthenticationManager();
+  }
 
+  //passwordEncoder Bean 등록
+  @Bean
+  public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder();
+  }
+
+  // securityFilter bean으로 등록
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception{
-//  security - step3
-//    httpSecurity.authorizeHttpRequests(authorize -> authorize
-//            .requestMatchers("/index.html").permitAll()
-//            .anyRequest().authenticated())
-//        .formLogin(Customizer.withDefaults());
-//    DefaultSecurityFilterChain chain = httpSecurity.build();
-//    chain.getFilters().forEach(System.out::println);
+    // CORS 설정
+    httpSecurity.cors((corsCustomizer) ->
+      corsCustomizer.configurationSource(new CorsConfigurationSource() {
+        @Override
+        public CorsConfiguration getCorsConfiguration(HttpServletRequest request) {
+          CorsConfiguration c = new CorsConfiguration();
+          c.setAllowedOrigins(Collections.singletonList("http://localhost:3000"));
+          c.setAllowedMethods(Collections.singletonList("*"));
+          c.setAllowCredentials(true);
+          c.setAllowedHeaders(Collections.singletonList("*"));
+          c.setMaxAge(3600L);
+          c.setExposedHeaders(Collections.singletonList("Authorization"));
+          return c;
+        }
+      })
+    );
+
 
     //  security - step4 : 커스텀 로그인 페이지
     httpSecurity.authorizeHttpRequests(auth -> auth
-          .requestMatchers("/login", "/account/signup").permitAll()
-          .anyRequest().authenticated())
-//        .csrf(csrf -> csrf.disable())
-        .formLogin(form -> form
-            .loginPage("/login")
-            .loginProcessingUrl("/authentication")
-            .usernameParameter("username")
-            .passwordParameter("password")
-            .defaultSuccessUrl("/", true)
-            .failureUrl("/login?error"))
-        .logout(logout -> logout
-            .logoutUrl("/logout")
-            .logoutSuccessUrl("/login?logout")
-            .invalidateHttpSession(true)
-            .deleteCookies("JSESSIONID"));
+            .requestMatchers("/api/main").permitAll()
+            .anyRequest().authenticated());
+    httpSecurity.csrf(csrf ->csrf.disable());
+    httpSecurity.formLogin(auth-> auth.disable());
+    httpSecurity.httpBasic(auth -> auth.disable());
+    httpSecurity.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+
+    httpSecurity.addFilterBefore(new JwtFilter(tokenProvider), LoginFilter.class);
+    httpSecurity.addFilterAt(new LoginFilter(authenticationManager(authenticationConfiguration), tokenProvider),
+        UsernamePasswordAuthenticationFilter.class);
+
+
     return httpSecurity.build();
   }
 }
